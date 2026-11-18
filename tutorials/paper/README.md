@@ -2,8 +2,8 @@
 
 Ready-to-run setups that reproduce Tables 1 and 2 of
 
-> Y. Feldman et al., *Massively parallel matrix-free 3D global linear stability analysis of
-> incompressible flows in OpenFOAM*.
+> D. Polyak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
+> Analysis in OpenFOAM*, under review (2026).
 
 | Case | Lid | Re | Shift σ | Paper result |
 |---|---|---|---|---|
@@ -18,6 +18,31 @@ shift-invert Arnoldi 14–30 h. Run on a node or through the scheduler, e.g.
 
 ```bash
 ./Allrun -np 256
+```
+
+Through a scheduler, a job script loads the environment (README section 2b) and calls
+`Allrun`. SLURM:
+```bash
+#!/bin/bash
+#SBATCH --job-name=straight256
+#SBATCH --ntasks=256
+#SBATCH --time=48:00:00
+module load openfoam/14                  # or: source /path/to/OpenFOAM-14/etc/bashrc
+source ~/ofLSA/etc/bashrc
+cd ~/ofLSA/tutorials/paper/straightCavity256
+./Allrun -np $SLURM_NTASKS > log.Allrun 2>&1
+```
+SGE (the parallel environment name, here `mpi`, differs between clusters — ask your administrator):
+```bash
+#!/bin/bash
+#$ -N straight256
+#$ -pe mpi 256
+#$ -l h_rt=48:00:00
+#$ -S /bin/bash
+#$ -cwd
+module load openfoam/14                  # or: source /path/to/OpenFOAM-14/etc/bashrc
+source ~/ofLSA/etc/bashrc
+./Allrun -np $NSLOTS > log.Allrun 2>&1
 ```
 
 `Allrun` reaches the target Re by continuation (200, 500, 1000, then every 250), halving the

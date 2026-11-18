@@ -41,6 +41,13 @@ done
 
 command -v StabilitySolver >/dev/null || { echo "StabilitySolver not found: run ./Allwmake"; exit 1; }
 
+# Set "key value;" in an OpenFOAM dictionary in place. sed instead of
+# foamDictionary -set, which would rewrite the whole file and drop its comments.
+setEntry() {
+    grep -q "^$2[[:space:]]" "$1" || { echo "No entry $2 in $1"; exit 1; }
+    sed -i "s/^\($2[[:space:]]*\)[^;]*;/\1$3;/" "$1"
+}
+
 RE=$(foamDictionary system/newtonProperties -entry Re -value)
 echo "Target Re = $RE, $NP MPI ranks"
 
@@ -52,7 +59,8 @@ fi
 
 # ---- mesh and starting point ------------------------------------------------
 if [ "$CONTINUE" = no ]; then
-    foamDictionary system/decomposeParDict -entry numberOfSubdomains -set "$NP" >/dev/null
+    setEntry system/decomposeParDict numberOfSubdomains "$NP"
+    rm -rf 0 && cp -r 0.orig 0              # fresh initial conditions (0/ is overwritten by results)
     blockMesh            > log.blockMesh    2>&1 || { echo "blockMesh failed, see log.blockMesh"; exit 1; }
     decomposePar -force  > log.decomposePar 2>&1 || { echo "decomposePar failed, see log.decomposePar"; exit 1; }
     rm -f lastConvergedRe
@@ -79,7 +87,7 @@ for t in $RAMP $RE; do
         r="$t"
         while :; do
             echo "NewtonSolver at Re = $r ..."
-            foamDictionary system/newtonProperties -entry Re -set "$r" >/dev/null
+            setEntry system/newtonProperties Re "$r"
             if mpirun -np "$NP" NewtonSolver -parallel > "log.NewtonSolver.Re$r" 2>&1; then
                 grep "^Newton " "log.NewtonSolver.Re$r" | tail -1
                 LAST="$r"
@@ -88,7 +96,7 @@ for t in $RAMP $RE; do
             fi
             r=$(awk -v a="$LAST" -v b="$r" 'BEGIN { printf "%g", (a + b)/2 }')
             if ! lt "$(awk -v a="$LAST" -v m="$MINSTEP" 'BEGIN { print a + m }')" "$r"; then
-                foamDictionary system/newtonProperties -entry Re -set "$RE" >/dev/null
+                setEntry system/newtonProperties Re "$RE"
                 echo "Newton does not converge even with a step of $MINSTEP above Re = $LAST."
                 echo "Base flow on disk is at Re = $LAST (see lastConvergedRe)."
                 exit 1
@@ -98,17 +106,23 @@ for t in $RAMP $RE; do
     done
 done
 
-foamDictionary system/newtonProperties -entry Re -set "$RE" >/dev/null
+setEntry system/newtonProperties Re "$RE"
 cp "log.NewtonSolver.Re$LAST" log.NewtonSolver
 
 # ---- stability at the target Re (both dictionaries must agree) ---------------
-foamDictionary system/stabilityProperties -entry Re -set "$RE" >/dev/null
+setEntry system/stabilityProperties Re "$RE"
 
 echo "StabilitySolver at Re = $RE ..."
 mpirun -np "$NP" StabilitySolver -parallel > log.StabilitySolver 2>&1 \
     || { echo "StabilitySolver failed, see log.StabilitySolver"; exit 1; }
 
-reconstructPar -latestTime > log.reconstructPar 2>&1
+# Both solvers write into time 0, and reconstructPar skips the 0/ directory unless
+# -withZero is given (with -latestTime it therefore reconstructs nothing and still
+# exits 0), so pass -withZero and check that the eigenmode really arrived.
+reconstructPar -withZero > log.reconstructPar 2>&1 \
+    || { echo "reconstructPar failed, see log.reconstructPar"; exit 1; }
+[ -f 0/leadingEigenModeRealU ] \
+    || { echo "reconstructPar wrote no eigenmode fields, see log.reconstructPar"; exit 1; }
 
 echo "Done. Leading eigenvalue:"
 grep -E "selected lambda|growth rate|angular frequency" log.StabilitySolver | tail -3

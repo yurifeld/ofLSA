@@ -1,5 +1,5 @@
 lnInclude/
-Make/linux64*/
+**/Make/linux64*/
 platforms/
 tutorials/**/processor*
 tutorials/**/log.*
@@ -7,3 +7,6 @@ tutorials/**/case.foam
 tutorials/**/constant/polyMesh/
 tutorials/**/[1-9]*/
 tutorials/**/lastConvergedRe
+tutorials/**/0/
+tutorials/**/paraview.*.btr
+log.Allwmake

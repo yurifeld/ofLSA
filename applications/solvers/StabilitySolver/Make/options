@@ -1,6 +1,9 @@
+# MPI flags come from OpenFOAM's rules for the MPI it was built with
+# (WM_MPLIB: OpenMPI, Intel MPI, MPICH, ...), so any of them works.
+-include $(GENERAL_RULES)/mplibType
+
 EXE_INC = \
-    -DOMPI_SKIP_MPICXX \
-    -I$(MPI_ARCH_PATH)/include \
+    $(PFLAGS) $(PINC) \
     -I$(ARPACK_INC) \
     -I$(ARPACK_INC)/.. \
     -I$(OFLSA_DIR)/src/matrixFreeFGMRESSafe/lnInclude \
@@ -8,8 +11,7 @@ EXE_INC = \
     -I$(LIB_SRC)/meshTools/lnInclude
 
 EXE_LIBS = \
-    -L$(MPI_ARCH_PATH)/lib \
-    -lmpi \
+    $(PLIBS) \
     -L$(FOAM_USER_LIBBIN) \
     -lmatrixFreeFGMRESSafe \
     -L$(ARPACK_LIB) \

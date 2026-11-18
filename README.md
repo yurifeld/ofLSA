@@ -1,285 +1,571 @@
-# ofLSA — global linear stability analysis of 3D flows in OpenFOAM
+# ofLSA: Preconditioned Shift-and-Invert Global Linear Stability Analysis in OpenFOAM
 
-This repository answers one question about a flow: **at what Reynolds number does a steady
-flow stop being steady, and what does the disturbance that grows look like?**
+ofLSA is a parallel, matrix-free computational framework for the steady-state solution and
+three-dimensional global linear stability analysis (TriGlobal LSA) of incompressible flows.
+Developed by D. Polyak and Y. Feldman at the Department of Mechanical Engineering,
+Ben-Gurion University of the Negev, the framework is implemented in OpenFOAM 14 (OpenFOAM Foundation) and uses its
+finite-volume discretization, domain decomposition, MPI communication and native iterative
+linear solvers.
 
-It contains two solvers for OpenFOAM-14 (openfoam.org), written by Y. Feldman's group
-(Ben-Gurion University), and a ready-to-run example: the 3D lid-driven cavity.
-
----
-
-## 1. The idea in five minutes
-
-Take a cube filled with fluid whose top lid slides at constant speed. At low Re the fluid
-settles into a steady vortex. Raise Re, and at some point the steady vortex can no longer
-survive: any tiny disturbance grows and the flow starts to oscillate. That point is the
-**critical Reynolds number**. For the cube it is Re ≈ 1929.
-
-We find it in two steps — one solver each.
-
-**Step 1 — the steady flow (`NewtonSolver`).**
-We need the steady flow even where it is unstable (nature would never show it to us there,
-but mathematically it exists). A time-stepping solver cannot find it — it would drift away
-into the oscillating flow. So we solve the *steady* Navier–Stokes equations directly with
-Newton's method: guess, correct, repeat, until the residual is tiny.
-
-**Step 2 — will a small disturbance grow? (`StabilitySolver`).**
-We add a tiny disturbance to the steady flow and ask how it evolves. Because it is tiny,
-its equations are linear, and their solutions behave like `e^(λt)` with a complex number
-`λ = λr + i·ω`:
-
-| | meaning |
-|---|---|
-| `λr < 0` | the disturbance dies out — the flow is **stable** |
-| `λr > 0` | it grows — the flow is **unstable** |
-| `λr = 0` | the boundary: this Re is the **critical** one |
-| `ω` | the angular frequency of the oscillations that will appear |
-
-The solver finds the few `λ` with the largest `λr` (the most dangerous disturbances) and
-writes out their shape — the **eigenmode** — which you can look at in ParaView.
-
-**Why it is hard, and what is special here.** A 256³ grid has about 17 million cells, i.e.
-~70 million unknowns. Building and inverting such a matrix is impossible. Here no matrix is
-ever built: every operation is done "on the fly" with OpenFOAM's own operators, and the
-big linear systems are solved iteratively (FGMRES) with a good preconditioner (modified
-augmented Lagrangian, mAL). The eigenvalues are found with PARPACK (Arnoldi method) in
-*shift-invert* mode: you tell it roughly where to look (`σ`), and it quickly finds the
-eigenvalues nearest to that point.
+The repository accompanies the manuscript *Preconditioned Shift-and-Invert Global Linear
+Stability Analysis in OpenFOAM* by D. Polyak and Y. Feldman, currently under review. It
+provides the solver implementations, installation,
+compilation and execution scripts, a reduced-resolution tutorial for initial verification,
+and the high-resolution straight and diagonally lid-driven cavity configurations used in the
+study.
 
 ---
 
-## 2. What you need
+## 1. Numerical methodology
 
-- **Linux** (a workstation or a cluster; no root needed).
-- **OpenFOAM-14** from openfoam.org. *Not* the ESI version (openfoam.com, v2406/v2606) —
-  that is a different code base.
-- **MPI** (OpenMPI) with a Fortran compiler — usually comes with OpenFOAM; on a cluster
-  `module load gcc openmpi`.
-- **ARPACK/PARPACK** — if you don't have it, the build script installs it into your home
-  directory automatically.
+The framework comprises two solvers sharing the same discrete linearization of the
+incompressible Navier–Stokes equations and a common modified augmented-Lagrangian (mAL)
+preconditioning strategy.
 
-Installing OpenFOAM-14 on Ubuntu (needs root):
+### Steady base-flow computation (`NewtonSolver`)
+
+The steady finite-volume equations are solved directly by Newton iteration, allowing the
+computation of steady base states irrespective of their temporal stability, provided the
+nonlinear iteration converges. At each Newton step, the coupled velocity–pressure correction
+satisfies
+
+$$
+\mathbf{J}(\mathbf{Q}^{k})\,\delta\mathbf{q}^{k} = -\mathbf{r}(\mathbf{Q}^{k}),
+\qquad
+\mathbf{J} = \begin{bmatrix} \mathbf{F} & \mathbf{G} \\ \mathbf{D} & 0 \end{bmatrix},
+$$
+
+where $\mathbf{Q}^k$ is the current base-state approximation, $\mathbf{r}$ is the discrete
+residual, $\mathbf{F}$ is the full Newton velocity block, and $\mathbf{G}$ and $\mathbf{D}$
+are the discrete gradient and divergence operators, respectively. The Jacobian action
+includes both contributions from the linearization of convection. The coupled system is
+solved using right-preconditioned flexible GMRES (FGMRES). A pressure-Poisson projection is
+used to control the discrete continuity error before the Newton iteration and following each
+Newton update.
+
+### Global linear stability analysis (`StabilitySolver`)
+
+Linearization about the converged steady base state yields the generalized eigenvalue problem
+
+$$
+\mathbf{L}\widehat{\mathbf{q}} = \lambda\mathbf{B}\widehat{\mathbf{q}},
+\qquad
+\mathbf{L} = -\mathbf{J},
+\qquad
+\mathbf{B} = \begin{bmatrix} \mathbf{I}_u & 0 \\ 0 & 0 \end{bmatrix},
+$$
+
+where $\widehat{\mathbf{q}}$ contains the velocity and pressure eigenmode components and
+$\lambda = \lambda_r + i\omega$ denotes the temporal growth rate and angular frequency of the
+perturbation. The finite eigenvalues near a prescribed complex shift $\sigma$ are extracted
+using distributed Arnoldi iteration provided by PARPACK, applied to the shift-and-invert
+operator
+
+$$
+\mathbf{T}_{\sigma} = (\mathbf{L} - \sigma\mathbf{B})^{-1}\mathbf{B},
+\qquad
+\mu = \frac{1}{\lambda - \sigma}.
+$$
+
+Each application of this operator requires the iterative solution of a complex coupled
+velocity–pressure system. The shifted operator is evaluated using a doubled-real
+representation. Only the velocity components are used to construct the Arnoldi basis; the
+associated pressure eigenmode is recovered following convergence by an additional
+shifted-system solve.
+
+### Modified augmented-Lagrangian preconditioning
+
+Both solvers employ an mAL right preconditioner based on the augmented velocity operator
+
+$$
+\mathbf{F}_{\gamma,\sigma} = \mathbf{F} - \gamma\mathbf{G}\mathbf{D} + \sigma\mathbf{I}_u,
+$$
+
+with $\sigma = 0$ for the steady Newton system. A lower-triangular approximation of the
+augmented velocity block permits sequential solution of the scalar component systems. The
+inverse pressure Schur complement is approximated by
+
+$$
+\widetilde{\mathbf{S}}_{\gamma,\sigma}^{-1} = -(Re^{-1} + \gamma)\mathbf{I}_p - \sigma\mathbf{L}_p^{-1},
+$$
+
+where $\mathbf{L}_p$ denotes the positive pressure-Laplacian operator with the pressure
+reference imposed.
+
+The nested iterative solution procedure uses OpenFOAM's PBiCGStab/DILU infrastructure for
+scalar velocity preconditioning and GAMG for pressure-Poisson operations. The coupled Newton
+Jacobian and shifted stability operators are evaluated directly from the finite-volume
+discretization without assembling or factorizing the global coupled matrices. Sparse scalar
+auxiliary matrices are assembled within the preconditioning and projection procedures. The
+approximations introduced by mAL are confined to the preconditioner; the original discrete
+operators are retained in the outer Krylov and Arnoldi iterations.
+
+The mathematical derivation and details of the nested solver hierarchy are provided in the
+accompanying manuscript.
+
+---
+
+## 2. Reference configurations and reproducibility
+
+The framework was verified for the straight and diagonally lid-driven cubic cavities using
+structured, wall-clustered grids of $256^3$ control volumes. The grid mapping
+
+$$
+x = \xi - 0.0975\sin(2\pi\xi), \qquad 0 \le \xi \le 1,
+$$
+
+is applied in each of the three spatial directions. The same augmentation parameter,
+$\gamma = 0.02$, was used for both cavity configurations and for the steady and shifted
+systems.
+
+| Configuration | Grid | Near-critical Reynolds number | Angular frequency |
+|---|---|---|---|
+| Straight lid-driven cavity | $256^3$ | 1928.75 | 0.5841 |
+| Diagonally lid-driven cavity | $256^3$ | 2320.8 | 0.2507 |
+
+The reported Reynolds numbers correspond to computed near-neutral states on the specified
+finite-volume grids. The critical eigenmode of the straight cavity preserves midplane
+reflection symmetry, whereas that of the diagonally driven cavity is antisymmetric with
+respect to its diagonal symmetry plane. The latter implies half-period spatio-temporal
+reflection symmetry of the neutral linear disturbance.
+
+The reference computations employed 256 CPU cores on a Lenovo ThinkSystem SR645 V3 server
+equipped with two 128-core AMD EPYC 9745 processors (nominal frequency 2.4 GHz) and 1536 GB
+of DDR5 memory (rated at 6400 MT/s). On the $256^3$ grids, the steady base-flow computations
+required at most approximately two hours, while the complete shift-and-invert Arnoldi
+calculations required approximately 14–30 hours, depending on the configuration and
+operating point. These timings characterize the reported computational setup and are not
+general performance guarantees.
+
+The repository provides two levels of verification:
+
+- `tutorials/lidDrivenCavity3D/`: a $50^3$ straight-cavity tutorial for verifying
+  compilation, parallel execution and the numerical workflow (Section 5). Its eigenvalues are
+  resolution-dependent and should not be expected to reproduce the high-resolution reference
+  values.
+- `tutorials/paper/`: the two $256^3$ configurations corresponding to the manuscript,
+  including the prescribed Reynolds numbers, mesh and shift settings. Follow the
+  case-specific instructions in [`tutorials/paper/README.md`](tutorials/paper/README.md) to
+  reproduce the reported calculations.
+
+---
+
+## 3. Software requirements
+
+- Linux workstation or HPC system.
+- **OpenFOAM 14 from the OpenFOAM Foundation** (openfoam.org). Compatibility with the
+  separately maintained OpenFOAM distribution from openfoam.com is not established.
+- A C++ toolchain compatible with OpenFOAM, a Fortran compiler and an MPI implementation
+  (OpenMPI, Intel MPI or another MPI supported by the OpenFOAM installation).
+- ARPACK and its parallel extension PARPACK, built with an MPI and compiler configuration
+  compatible with OpenFOAM. If not available, the build procedure compiles them locally.
+- Python 3 for the supplied mesh-generation utility and ParaView for visualization of the
+  computed fields.
+
+Two installation routes are documented: an Ubuntu workstation with administrator privileges
+(Section 4.1), and an HPC system without administrator privileges (Section 4.2).
+Alternatively, a container is provided (Section 9).
+
+---
+
+## 4. Installation and compilation
+
+### 4.1 Ubuntu workstation with administrator (`sudo`) privileges
+
+Supported: Ubuntu 22.04, 24.04 and 26.04 (64-bit).
+
 ```bash
-sudo sh -c "wget -O - https://dl.openfoam.org/gpg.key > /etc/apt/trusted.gpg.d/openfoam.asc"
-sudo add-apt-repository http://dl.openfoam.org/ubuntu
-sudo apt update
-sudo apt install openfoam14 libarpack2-dev libparpack2-dev
-```
-On a cluster without root: use the cluster's OpenFOAM-14 module, or the container (section 8).
-
----
-
-## 3. First run, step by step
-
-```bash
-git clone https://github.com/dmitriipoliak/ofLSA.git
+git clone https://github.com/yurifeld/ofLSA.git
 cd ofLSA
+scripts/install_ubuntu.sh
 ```
 
-**Load the environment.**
+The script installs the missing system components — OpenFOAM 14 from the OpenFOAM Foundation
+package repository, OpenMPI, gfortran, ARPACK/PARPACK — and subsequently compiles the
+framework. Components already present are left unchanged, so the script may be re-run
+safely; `scripts/install_ubuntu.sh --check` only reports the installation status. The build
+log is written to `log.Allwmake`.
+
+To initialize the environment in a new terminal:
+
 ```bash
 scripts/oflsa-shell
 ```
-This opens a new shell with OpenFOAM-14 and this project loaded; the prompt becomes
-`(ofLSA) ...$`. Type the next commands *after* the prompt appears.
-(Alternative: `source /opt/openfoam14/etc/bashrc`, then `source etc/bashrc`.)
 
-**Build.**
+This opens a shell with OpenFOAM 14 and the project environment loaded (prompt
+`(ofLSA) ...$`). Execute the remaining commands in this shell. The utility also avoids two
+known problems of OpenFOAM environment initialization on Ubuntu desktops (Section 8).
+
+### 4.2 HPC system without administrator privileges
+
+On shared HPC systems the operating system, compilers and MPI are site-specific, and
+OpenFOAM must be compiled for that environment. Its installation should therefore be
+performed by the system administrator. A suitable request is:
+
+> Please install **OpenFOAM 14 (OpenFOAM Foundation, openfoam.org)**, compiled with the
+> system's MPI, and indicate how to load it (an environment module, or the path to
+> `OpenFOAM-14/etc/bashrc`). An MPI Fortran compiler (`mpif90`) and `cmake` are also
+> required. If ARPACK-ng with MPI support (PARPACK) is available as a module, please
+> indicate its name.
+
+All remaining components are installed in the user's home directory. The commands below
+assume the `bash` shell; users of `tcsh`/`csh` should start `bash` first.
+
 ```bash
-./Allwmake
+bash                                          # only if the login shell is tcsh/csh
+module load openfoam/14                       # as specified by the administrator, or:
+source /path/to/OpenFOAM-14/etc/bashrc
+git clone https://github.com/yurifeld/ofLSA.git
+cd ofLSA
+source etc/bashrc
+./Allwmake -j
 ```
-Compiles the FGMRES library and both solvers (a couple of minutes). If PARPACK is not
-found, it is built first (5–20 min). At the end you should see:
+
+`Allwmake` uses an existing PARPACK if found (`ARPACK_DIR` set by an environment module, or
+system packages); otherwise it downloads and compiles ARPACK-ng — and OpenBLAS, if no
+BLAS/LAPACK is available — into `~/software/arpack-ng-install`. This is required only once.
+
+In each new session (and in each scheduler job script), initialize the environment before
+execution:
+
+```bash
+module load openfoam/14                       # or: source /path/to/OpenFOAM-14/etc/bashrc
+source ~/ofLSA/etc/bashrc
+```
+
+Example SLURM and SGE job scripts are given in
+[`tutorials/paper/README.md`](tutorials/paper/README.md).
+
+### Successful compilation
+
+Both routes compile the shared matrix-free FGMRES library and the two solver applications.
+Successful compilation ends with:
+
 ```
 Built:
 .../bin/NewtonSolver
 .../bin/StabilitySolver
 ```
 
-**Run the example.**
+---
+
+## 5. Execution of the tutorial
+
+With the project environment initialized:
+
 ```bash
 cd tutorials/lidDrivenCavity3D
+./Allrun -np 4 > log.Allrun 2>&1
+```
+
+The `-np` argument specifies the number of MPI processes; use at most the number of physical
+cores (not hardware threads). For a detached local execution:
+
+```bash
 nohup ./Allrun -np 4 > log.Allrun 2>&1 &
 tail -f log.Allrun
 ```
-- `-np 4` — number of CPU cores to use. Use as many as you have.
-- `nohup ... &` — runs in the background, keeps running if you close the terminal.
-- `tail -f` — shows progress; `Ctrl+C` leaves the view, the run continues.
 
-What `Allrun` does, in order:
+On managed HPC systems, execute the workflow within a resource allocation using the site's
+scheduler (Section 4.2).
 
-1. `blockMesh` — builds the grid (50×50×50, refined towards the walls);
-2. `decomposePar` — cuts it into pieces, one per core;
-3. `NewtonSolver` — the steady flow, raising Re gradually (200 → 500 → 1000 → 1250 → 1500 → … → target),
-   because Newton does not converge if you start from rest at high Re;
-4. `StabilitySolver` — the eigenvalues and eigenmode at the target Re;
-5. `reconstructPar` — glues the pieces back together.
+The `Allrun` script performs the following operations:
 
-Expect minutes for the Newton part and longer for the stability part, depending on cores.
+1. Copying of the initial and boundary conditions from `0.orig/` to `0/`. The computed fields
+   are later written into `0/`; the supplied conditions in `0.orig/` remain unchanged.
+2. Mesh generation using `blockMesh`.
+3. Domain decomposition using `decomposePar`.
+4. Computation of the steady base flow with `NewtonSolver`, using continuation in Reynolds
+   number (200, 500, 1000, then increments of 250, up to the target) to improve nonlinear
+   convergence.
+5. Global linear stability analysis of the converged base flow at the target Reynolds number
+   using `StabilitySolver`.
+6. Reconstruction of the distributed solution into `0/` using `reconstructPar -withZero`, and
+   creation of `case.foam` for ParaView.
 
----
+`./Allclean` removes all generated data and restores the case to its original state.
 
-## 4. Reading the results
-
-**In `log.Allrun`** — one line per Newton step:
-```
-NewtonSolver at Re = 1000 ...
-Newton 6: momentum=3.1e-08 continuity=2.2e-12
-```
-Small numbers = converged. The full Newton output for each Re is in `log.NewtonSolver.Re<Re>`.
-
-**The answer** — at the end of `log.Allrun` (or `log.StabilitySolver`):
-```
-growth rate Re(lambda)      = -0.0123      <- λr: negative = stable
-angular frequency Im(lambda)= 0.581        <- ω
-```
-
-**The eigenmode in ParaView:**
-```bash
-paraview case.foam
-```
-Click *Apply*, pick the field `leadingEigenModeRealU` (and `leadingEigenModeImagU`).
-These are the real and imaginary parts of the growing disturbance; an iso-surface of one
-velocity component shows its 3D structure.
+With the supplied settings (target $Re = 2100$, shift $\sigma = 0.5i$) the complete tutorial
+requires approximately 20 minutes on four cores of a current workstation, and yields a
+leading eigenvalue of approximately $\lambda \approx -0.0049 + 0.5479\,i$. Small
+differences in the last digits are expected between platforms and process counts. The
+preliminary tutorial is intended to verify the complete workflow before undertaking the
+substantially more expensive high-resolution calculations.
 
 ---
 
-## 5. What is in the case folder
+## 6. Case configuration
+
+The tutorial follows the standard OpenFOAM case organization:
 
 ```
 tutorials/lidDrivenCavity3D/
-├── 0/U, 0/p                  initial and boundary conditions (lid velocity = 1)
+├── 0.orig/
+│   ├── U
+│   └── p
 ├── system/
-│   ├── blockMeshDict         the grid
-│   ├── newtonProperties      settings of the steady solver   (Re, tolerances)
-│   ├── stabilityProperties   settings of the eigen solver    (Re, shift σ, number of modes)
-│   ├── decomposeParDict      how to split over cores (set by Allrun)
-│   ├── controlDict, fvSchemes, fvSolution    standard OpenFOAM files
-├── Allrun                    runs everything
-└── Allclean                  deletes results, keeps settings
+│   ├── blockMeshDict
+│   ├── newtonProperties
+│   ├── stabilityProperties
+│   ├── decomposeParDict
+│   ├── controlDict
+│   ├── fvSchemes
+│   └── fvSolution
+├── Allrun
+└── Allclean
 ```
 
-Re is defined with the lid speed (1) and the cube side (1): ν = 1/Re.
+| File | Purpose |
+|---|---|
+| `0.orig/U`, `0.orig/p` | Initial and boundary conditions (copied to `0/` by `Allrun`) |
+| `0/` | Generated: base flow (`U`, `p`, `phi`) and eigenmode fields |
+| `system/blockMeshDict` | Mesh geometry and resolution |
+| `system/newtonProperties` | Reynolds number, nonlinear and linear solver controls, and Newton preconditioning parameters |
+| `system/stabilityProperties` | Reynolds number, spectral shift, Arnoldi controls, and shifted-system solver parameters |
+| `system/decomposeParDict` | MPI domain decomposition (set by `Allrun -np`) |
+| `system/fvSchemes`, `system/fvSolution`, `system/controlDict` | Finite-volume discretization and OpenFOAM execution controls |
+| `Allrun`, `Allclean` | Execution and removal of generated case data, respectively |
 
----
+### Reynolds number and mesh resolution
 
-## 6. Recipes: changing the case
+For the nondimensional cavity cases, the characteristic lid speed and cavity side length are
+unity, so that the nondimensional kinematic viscosity is $Re^{-1}$.
 
-Work on a copy, keep the original:
+To modify a case while preserving the supplied tutorial, first create a working copy from the
+repository root:
+
 ```bash
-cp -r tutorials/lidDrivenCavity3D ~/myCavity && cd ~/myCavity
+cp -r tutorials/lidDrivenCavity3D ~/myCavity
+cd ~/myCavity
+./Allclean
 ```
 
-The helper scripts (`setRe`, `makeCavityMesh.py`) are on the PATH once the environment is
-loaded, so you can call them from any case folder.
+Set the target Reynolds number and execute the case:
 
-**Change the Reynolds number**
 ```bash
 setRe 1900
 ./Allrun -np 8
 ```
-`setRe` changes Re in *both* `newtonProperties` and `stabilityProperties`. They must always
-be equal — the stability is computed for the flow at that Re.
 
-**Change the grid**
+The `setRe` utility updates both `newtonProperties` and `stabilityProperties`. The Reynolds
+number specified for stability analysis must coincide with that of the converged base flow.
+
+To generate a $100^3$ grid with the wall-clustering parameter used in the paper:
+
 ```bash
-makeCavityMesh.py 100 0.0975          # run inside the case folder
+makeCavityMesh.py 100 0.0975
+./Allrun -np 8
 ```
-`100` — cells in each direction; `0.0975` — how strongly cells are squeezed towards the
-walls (0 = uniform). It overwrites `system/blockMeshDict`; then run `./Allrun` again. Grid sizes: 50³ — any PC; 100³ (1 M cells) — a strong workstation;
-256³ (17 M) — a cluster (the paper used 256 cores and 14–30 hours).
 
-**Use more or fewer cores** — just `./Allrun -np 16`.
+The mesh-generation utility overwrites `system/blockMeshDict`. Its arguments specify the
+number of cells in each direction and the mesh-stretching coefficient (zero for a uniform
+grid). A mesh modification requires recomputation of the base state and a consistent domain
+decomposition, both performed by `Allrun`. Select the resolution and process count according
+to the available memory and computational resources.
 
-**Look for other eigenvalues** — in `system/stabilityProperties`:
-- `sigmaImag 0.5` — where to look along the frequency axis; put it near the `ω` you expect;
-- `arnoldiNev 2` — how many eigenvalues to find; `arnoldiNcv` — the working basis,
-  keep it at least `2·nev + 1`.
+### Spectral targeting and Arnoldi parameters
 
-After changing only these, you do not need to recompute the steady flow:
+The principal eigenvalue extraction controls in `system/stabilityProperties` include:
+
+| Parameter | Description |
+|---|---|
+| `sigmaReal`, `sigmaImag` | Real and imaginary components of the spectral shift $\sigma$ |
+| `arnoldiNev` | Number of requested eigenvalues |
+| `arnoldiNcv` | Dimension of the Arnoldi search subspace |
+| `shiftInvertTolerance` | Convergence tolerance for the shifted linear systems |
+| `arnoldiConstraintTolerance` | Tolerance associated with monitoring the divergence constraint |
+
+Choose the shift in the vicinity of the spectral region of interest. For example,
+`sigmaImag 0.5` targets oscillatory eigenvalues near an angular frequency of 0.5 when the
+real shift component is zero. An Arnoldi subspace dimension of at least
+`2*arnoldiNev + 1` is recommended as an initial choice, subject to PARPACK's dimensional
+requirements and the available memory.
+
+If only the spectral or stability-solver controls are modified, the converged base flow can
+be reused. For an existing eight-process decomposition:
+
 ```bash
 mpirun -np 8 StabilitySolver -parallel > log.StabilitySolver 2>&1
+reconstructPar -withZero > log.reconstructPar 2>&1
+touch case.foam
 ```
 
-**Newton fails at some Re** — `Allrun` halves the Re step by itself and retries
-(down to a step of 10). If it still stops, the last converged base flow stays on disk and its
-Re is in the file `lastConvergedRe`; continue from it without rebuilding the mesh:
+The MPI process count must match the existing decomposition. The `-withZero` option is
+required: both solvers write into time `0`, which `reconstructPar` otherwise skips without
+reporting an error. Eigenvalues returned by shift-and-invert Arnoldi are targeted by
+proximity to the shift; establishing the globally leading eigenvalue may require additional
+shifts and a sufficiently broad investigation of the relevant spectrum.
+
+### Continuation and restarting
+
+The tutorial script uses continuation in Reynolds number to obtain suitable initial
+approximations for Newton iteration. If a continuation step fails, the script halves the
+increment and retries, down to an increment of 10 (option `-minstep`). The last converged
+Reynolds number is recorded in `lastConvergedRe`.
+
+Provided the existing mesh, decomposed fields and process count are consistent, continuation
+may be resumed using:
+
 ```bash
-./Allrun -np 8 -continue                 # from lastConvergedRe
-./Allrun -np 8 -continue -from 1500      # if you know the Re of the flow on disk
+./Allrun -np 8 -continue
 ```
 
-**Find the critical Re** — run at a few Re around the expected value (e.g. 1850, 1900,
-1950, 2000), note `λr` for each, and interpolate to where `λr = 0`.
+or from a specified converged state already stored on disk:
 
----
-
-## 7. When something goes wrong
-
-| What you see | Why | What to do |
-|---|---|---|
-| `source .../bashrc` hangs, or `_foamSource: command not found` | OpenFOAM calls `paraview --version` at load time; on some Ubuntu desktops that hangs | use `scripts/oflsa-shell`; or press `Ctrl+C` once |
-| `exe-not-found` from `mpirun` | OpenFOAM is not loaded in this terminal | `scripts/oflsa-shell` first |
-| `Newton FGMRES failed after 200 iterations` | Newton started too far from the solution | `./Allrun -continue -ramp "..."` with smaller steps |
-| `PARPACK Arnoldi basis vector ... left the required ... solenoidal space` | small errors of the inner solves accumulated | in `stabilityProperties`: `shiftInvertTolerance 1e-6` and/or `arnoldiConstraintTolerance 1e-3` |
-| `cannot find -liomp5 / -lifport` | an old `Make/options` with the Intel compiler | use the files from this repository |
-| `PARPACK not found` | ARPACK not installed | `scripts/install_arpack.sh`, or `sudo apt install libarpack2-dev libparpack2-dev` |
-| ParaView does not open from a terminal | same ParaView issue | `nohup paraview case.foam > /dev/null 2>&1 < /dev/null &` |
-
----
-
-## 8. Running on a cluster without OpenFOAM: container
-
-The container has OpenFOAM-14, PARPACK and the solvers inside. It needs Apptainer
-(Singularity), which most clusters have:
 ```bash
-apptainer pull oflsa.sif docker://ghcr.io/dmitriipoliak/oflsa:latest
-cd ~/myCavity
-apptainer exec ~/oflsa.sif oflsa-run blockMesh
-apptainer exec ~/oflsa.sif oflsa-run decomposePar
-mpirun -np 32 apptainer exec ~/oflsa.sif oflsa-run NewtonSolver -parallel
-mpirun -np 32 apptainer exec ~/oflsa.sif oflsa-run StabilitySolver -parallel
+./Allrun -np 8 -continue -from 1500
 ```
-For runs over several nodes the cluster's OpenMPI must be compatible with the one in the
-container — ask your cluster support which module to load.
+
+The continuation steps can also be prescribed explicitly, e.g.
+`./Allrun -np 8 -ramp "500 1000 1500 1800"`, or omitted with `-ramp none`.
 
 ---
 
-## 9. Reference values
+## 7. Analysis of the computed results
 
-| Case | Re_cr | ω |
-|---|---|---|
-| Cubic lid-driven cavity | ≈ 1928.75 | ≈ 0.584 |
-| Diagonally driven cavity | ≈ 2320.8 | ≈ 0.251 |
+### Base-flow convergence
 
-On the 256³ grid. The 50³ example is coarse — it checks that everything works, the numbers
-will differ somewhat.
+The workflow records the overall execution in `log.Allrun` and the Newton solver output at
+individual continuation points in files of the form `log.NewtonSolver.Re<Re>`. Inspect both
+momentum and continuity residuals and the reported convergence status before using a base
+state for stability analysis.
 
-### Reproducing the paper
+### Eigenvalue convergence and critical parameters
 
-`tutorials/paper/` contains the two 256³ cases of the paper (straight and diagonally driven
-cavity) with the paper's Re, grid and shift. They need a cluster; see
-[tutorials/paper/README.md](tutorials/paper/README.md).
+The stability solver records its output in `log.StabilitySolver`. The reported growth rate
+and angular frequency correspond to the real and imaginary parts of the recovered eigenvalue,
+respectively:
 
-## 10. Repository layout
+- $\lambda_r < 0$: exponential decay of the selected linear mode.
+- $\lambda_r > 0$: exponential growth of the selected linear mode.
+- $\lambda_r = 0$: neutral stability of that mode.
 
-| Path | What it is |
+For a Hopf instability, the critical Reynolds number is identified by the crossing of the
+leading eigenvalue through the imaginary axis at nonzero angular frequency. Compute the same
+eigenvalue branch at several Reynolds numbers near the crossing and refine the estimate of
+the zero growth rate. A negative growth rate for a single targeted mode does not by itself
+establish stability of the complete flow.
+
+Assess the shifted-system convergence, the eigensolver convergence, the generalized
+eigenpair residual and the continuity constraint when accepting an eigenpair. Inner
+linear-solver tolerances should be sufficiently stringent to support the intended eigenvalue
+accuracy. For quantitative comparisons, also establish the sensitivity of the computed
+eigenpairs to mesh resolution and the spectral extraction parameters.
+
+### Eigenmode visualization
+
+After reconstruction, open the case in ParaView:
+
+```bash
+paraview case.foam
+```
+
+The fields `leadingEigenModeRealU` and `leadingEigenModeImagU` contain the real and
+imaginary parts of the selected velocity eigenmode (the corresponding pressure fields are
+`leadingEigenModeRealP` and `leadingEigenModeImagP`). Signed component isosurfaces and
+componentwise amplitudes can be used to characterize its spatial structure and reflection
+parity.
+
+The physical linear velocity disturbance is proportional to
+
+$$
+\mathbf{u}'(\mathbf{x},t) = \operatorname{Re}\left\{ \widehat{\mathbf{u}}(\mathbf{x})\, e^{\lambda t} \right\}.
+$$
+
+The complex eigenmode has arbitrary normalization and global phase; comparisons of signed
+fields between independent calculations should therefore employ a consistent normalization
+and phase convention.
+
+---
+
+## 8. Troubleshooting
+
+| Symptom | Suggested action |
 |---|---|
-| `src/matrixFreeFGMRESSafe` | iterative linear solver (FGMRES) without assembled matrices |
-| `applications/solvers/NewtonSolver` | steady flow by Newton's method |
-| `applications/solvers/StabilitySolver` | eigenvalues and eigenmodes (PARPACK, shift-invert) |
-| `tutorials/lidDrivenCavity3D` | the example (50³, quick check) |
-| `tutorials/paper` | the two 256³ cases of the paper |
-| `scripts/oflsa-shell` | opens a terminal with everything loaded |
-| `scripts/setRe` | sets Re in both settings files |
-| `scripts/makeCavityMesh.py` | generates the cavity grid |
-| `scripts/install_arpack.sh` | installs PARPACK into your home directory |
-| `etc/bashrc` | finds PARPACK, sets paths |
-| `container/` | recipe of the container |
+| OpenFOAM environment initialization hangs or reports `_foamSource: command not found` | Use `scripts/oflsa-shell`; a ParaView version check during environment initialization may be responsible. |
+| `Allwmake` reports `Load the OpenFOAM-14 environment first` | Initialize OpenFOAM in the current shell (Section 4). The environment scripts require `bash`; under `tcsh`/`csh` start `bash` first. |
+| `Missing mpif90` while building PARPACK | Load the MPI environment module specified by the system administrator (Section 4.2). |
+| `exe-not-found` from `mpirun` | Verify that the project environment is initialized and that both solver executables were built and are accessible on the MPI ranks. |
+| Newton FGMRES exceeds its iteration limit | Inspect the residual history, solver tolerances and initial base state. Resume from the last converged solution with smaller continuation increments, e.g. `./Allrun -np 8 -continue -ramp "1600 1700 1800"`. |
+| PARPACK reports that an Arnoldi basis vector left the solenoidal space | Inspect the base-flow and shifted-system continuity residuals. Test a tighter inner tolerance, e.g. `shiftInvertTolerance 1e-6`. Adjust `arnoldiConstraintTolerance` only if the resulting eigenpair accuracy and continuity error remain acceptable. |
+| Linker errors involving `-liomp5` or `-lifport` | Check compiler consistency and use the repository's supplied `Make/options` rather than settings from a different toolchain. |
+| PARPACK is not detected | Run `scripts/install_arpack.sh` or install the appropriate ARPACK/PARPACK development packages, ensuring MPI and compiler compatibility. |
+| ParaView shows no `leadingEigenMode*` fields | The results were not reconstructed: run `reconstructPar -withZero` and reopen `case.foam`. |
+| ParaView aborts at start-up (`could not load the Qt platform plugin`, `createPlatformIntegration`) | No usable display for Qt. On a Wayland desktop use `QT_QPA_PLATFORM=xcb paraview case.foam`; over SSH use X forwarding (`ssh -X`) or visualize the reconstructed fields on a separate workstation. |
 
-## Citation and license
+---
 
-Y. Feldman et al., *Massively parallel matrix-free 3D global linear stability analysis of
-incompressible flows in OpenFOAM* (in preparation).
+## 9. Container-based execution
 
-GPL-3.0-or-later, as OpenFOAM.
+A container image including OpenFOAM 14, PARPACK and the solver executables is provided for
+systems without a native OpenFOAM installation. The documented execution environment uses
+Apptainer (formerly Singularity).
+
+On a single node, the complete workflow of Section 5 — Reynolds-number continuation,
+stability analysis and reconstruction — is executed with the container's MPI:
+
+```bash
+apptainer pull "$HOME/oflsa.sif" docker://ghcr.io/yurifeld/oflsa:latest
+cd ~/myCavity
+apptainer exec "$HOME/oflsa.sif" oflsa-run ./Allrun -np 32
+```
+
+For multi-node runs the host MPI launches the container on each node, and the individual
+steps are invoked explicitly. Newton continuation in Reynolds number (Section 6) remains
+necessary:
+
+```bash
+SIF="$HOME/oflsa.sif"
+rm -rf 0 && cp -r 0.orig 0
+apptainer exec "$SIF" oflsa-run blockMesh
+apptainer exec "$SIF" oflsa-run decomposePar -force    # numberOfSubdomains = 128 in system/decomposeParDict
+for re in 200 500 1000 1250 1500 1750 2000; do         # ... up to the target Reynolds number
+    apptainer exec "$SIF" oflsa-run setRe $re
+    mpirun -np 128 apptainer exec "$SIF" oflsa-run NewtonSolver -parallel > log.NewtonSolver.Re$re 2>&1 || break
+done
+mpirun -np 128 apptainer exec "$SIF" oflsa-run StabilitySolver -parallel > log.StabilitySolver 2>&1
+apptainer exec "$SIF" oflsa-run reconstructPar -withZero
+touch case.foam
+```
+
+The host MPI implementation and container MPI libraries must be compatible. Follow the local
+HPC system's guidance for containerized MPI applications and scheduler integration. For
+reproducible research, record the exact container image version or digest rather than
+relying solely on the mutable `latest` tag.
+
+---
+
+## 10. Repository structure
+
+| Path | Contents |
+|---|---|
+| `src/matrixFreeFGMRESSafe/` | Matrix-free flexible GMRES library |
+| `applications/solvers/NewtonSolver/` | Steady Newton solver and associated preconditioner |
+| `applications/solvers/StabilitySolver/` | Shift-and-invert global stability solver and associated preconditioner |
+| `tutorials/lidDrivenCavity3D/` | Reduced-resolution verification case |
+| `tutorials/paper/` | Reference configurations from the manuscript |
+| `scripts/install_ubuntu.sh` | Installation of all prerequisites and compilation on Ubuntu (`sudo`) |
+| `scripts/install_arpack.sh` | Local ARPACK/PARPACK installation (no `sudo`) |
+| `scripts/oflsa-shell` | Project environment initialization |
+| `scripts/setRe` | Consistent Reynolds-number configuration |
+| `scripts/makeCavityMesh.py` | Structured cavity mesh generation |
+| `etc/bashrc` | Project environment and library configuration |
+| `container/` | Container build configuration |
+
+---
+
+## 11. Citation and license
+
+If the software or reference configurations are used in research, please cite the
+accompanying manuscript:
+
+> D. Polyak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
+> Analysis in OpenFOAM*, under review (2026).
+
+The citation will be updated with the journal reference upon publication.
+
+For reproducibility, report the repository commit or release, OpenFOAM and MPI versions,
+mesh characteristics, solver parameters and computational resources used in the study.
+
+The software is distributed under the GNU General Public License, version 3 or later
+(GPL-3.0-or-later), consistent with OpenFOAM.

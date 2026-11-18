@@ -2,7 +2,7 @@
 #
 # Built automatically by .github/workflows/container.yml and pushed to GHCR.
 # On a cluster (no root) run it with Apptainer:
-#   apptainer pull oflsa.sif docker://ghcr.io/dmitriipoliak/oflsa:latest
+#   apptainer pull oflsa.sif docker://ghcr.io/yurifeld/oflsa:latest
 #   apptainer exec oflsa.sif oflsa-run blockMesh
 #   mpirun -np 8 apptainer exec oflsa.sif oflsa-run StabilitySolver -parallel
 
