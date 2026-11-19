@@ -139,7 +139,8 @@ general performance guarantees.
 
 The repository provides two levels of verification:
 
-- `tutorials/lidDrivenCavity3D/`: a $50^3$ straight-cavity tutorial for verifying
+- `tutorials/lidDrivenCavity3D/`, `tutorials/diagonalCavity3D/`: $50^3$ straight- and
+  diagonal-cavity tutorials for verifying
   compilation, parallel execution and the numerical workflow (Section 5). Its eigenvalues are
   resolution-dependent and should not be expected to reproduce the high-resolution reference
   values.
@@ -271,8 +272,8 @@ scheduler (Section 4.2).
 
 The `Allrun` script performs the following operations:
 
-1. Copying of the initial and boundary conditions from `0.orig/` to `0/`. The computed fields
-   are later written into `0/`; the supplied conditions in `0.orig/` remain unchanged.
+1. Removal of earlier results (time directories other than `0/`). The initial and boundary
+   conditions in `0/` are never modified: both solvers write their results into time `1/`.
 2. Mesh generation using `blockMesh`.
 3. Domain decomposition using `decomposePar`.
 4. Computation of the steady base flow with `NewtonSolver`, using continuation in Reynolds
@@ -280,8 +281,9 @@ The `Allrun` script performs the following operations:
    convergence.
 5. Global linear stability analysis of the converged base flow at the target Reynolds number
    using `StabilitySolver`.
-6. Reconstruction of the distributed solution into `0/` using `reconstructPar -withZero`, and
-   creation of `case.foam` for ParaView.
+6. Reconstruction of the distributed solution into `1/` using `reconstructPar -latestTime`, and
+   creation of `case.foam` for ParaView. ParaView opens the case directly at time 1; the
+   paper figures are produced from it by the scripts in `figures/` (Section 7a).
 
 `./Allclean` removes all generated data and restores the case to its original state.
 
@@ -300,7 +302,7 @@ The tutorial follows the standard OpenFOAM case organization:
 
 ```
 tutorials/lidDrivenCavity3D/
-├── 0.orig/
+├── 0/
 │   ├── U
 │   └── p
 ├── system/
@@ -317,8 +319,8 @@ tutorials/lidDrivenCavity3D/
 
 | File | Purpose |
 |---|---|
-| `0.orig/U`, `0.orig/p` | Initial and boundary conditions (copied to `0/` by `Allrun`) |
-| `0/` | Generated: base flow (`U`, `p`, `phi`) and eigenmode fields |
+| `0/U`, `0/p` | Initial and boundary conditions (not modified by the solvers) |
+| `1/` | Generated: base flow (`U`, `p`, `phi`) and eigenmode fields (`leadingEigenMode*`) |
 | `system/blockMeshDict` | Mesh geometry and resolution |
 | `system/newtonProperties` | Reynolds number, nonlinear and linear solver controls, and Newton preconditioning parameters |
 | `system/stabilityProperties` | Reynolds number, spectral shift, Arnoldi controls, and shifted-system solver parameters |
@@ -386,13 +388,12 @@ be reused. For an existing eight-process decomposition:
 
 ```bash
 mpirun -np 8 StabilitySolver -parallel > log.StabilitySolver 2>&1
-reconstructPar -withZero > log.reconstructPar 2>&1
+reconstructPar -latestTime > log.reconstructPar 2>&1
 touch case.foam
 ```
 
-The MPI process count must match the existing decomposition. The `-withZero` option is
-required: both solvers write into time `0`, which `reconstructPar` otherwise skips without
-reporting an error. Eigenvalues returned by shift-and-invert Arnoldi are targeted by
+The MPI process count must match the existing decomposition. Both solvers write into time
+`1`; a continued Newton run (`startFrom latestTime`) starts from it and overwrites it. Eigenvalues returned by shift-and-invert Arnoldi are targeted by
 proximity to the shift; establishing the globally leading eigenvalue may require additional
 shifts and a sufficiently broad investigation of the relevant spectrum.
 
@@ -476,6 +477,22 @@ The complex eigenmode has arbitrary normalization and global phase; comparisons 
 fields between independent calculations should therefore employ a consistent normalization
 and phase convention.
 
+### Paper figures in one click
+
+The folder [`figures/`](figures/README.md) rebuilds Figs. 1–4 of the manuscript in ParaView:
+isosurfaces at ±25 % of the maximum of each velocity component, cavity outline, lid arrow,
+the same camera in all panels. After `./Allrun` in a case:
+
+| Figure | 256³ (paper case) | 50³ (tutorial) |
+|---|---|---|
+| Fig. 1, straight cavity, amplitudes | `figures/fig1.sh` / `fig1.bat` | `figures/fig1_50.sh` / `fig1_50.bat` |
+| Fig. 2, straight cavity, Re / Im | `figures/fig2.sh` / `fig2.bat` | `figures/fig2_50.sh` / `fig2_50.bat` |
+| Fig. 3, diagonal cavity, amplitudes | `figures/fig3.sh` / `fig3.bat` | `figures/fig3_50.sh` / `fig3_50.bat` |
+| Fig. 4, diagonal cavity, Re / Im | `figures/fig4.sh` / `fig4.bat` | `figures/fig4_50.sh` / `fig4_50.bat` |
+
+On Windows a double-click on the `.bat` file opens ParaView with the figure; on Linux and
+macOS run the `.sh` file. Add `-png` to render the panels without a window.
+
 ---
 
 ## 8. Troubleshooting
@@ -490,7 +507,7 @@ and phase convention.
 | PARPACK reports that an Arnoldi basis vector left the solenoidal space | Inspect the base-flow and shifted-system continuity residuals. Test a tighter inner tolerance, e.g. `shiftInvertTolerance 1e-6`. Adjust `arnoldiConstraintTolerance` only if the resulting eigenpair accuracy and continuity error remain acceptable. |
 | Linker errors involving `-liomp5` or `-lifport` | Check compiler consistency and use the repository's supplied `Make/options` rather than settings from a different toolchain. |
 | PARPACK is not detected | Run `scripts/install_arpack.sh` or install the appropriate ARPACK/PARPACK development packages, ensuring MPI and compiler compatibility. |
-| ParaView shows no `leadingEigenMode*` fields | The results were not reconstructed: run `reconstructPar -withZero` and reopen `case.foam`. |
+| ParaView shows no `leadingEigenMode*` fields | The results were not reconstructed: run `reconstructPar -latestTime` and reopen `case.foam` (time 1). |
 | ParaView aborts at start-up (`could not load the Qt platform plugin`, `createPlatformIntegration`) | No usable display for Qt. On a Wayland desktop use `QT_QPA_PLATFORM=xcb paraview case.foam`; over SSH use X forwarding (`ssh -X`) or visualize the reconstructed fields on a separate workstation. |
 
 ---
@@ -516,7 +533,7 @@ necessary:
 
 ```bash
 SIF="$HOME/oflsa.sif"
-rm -rf 0 && cp -r 0.orig 0
+apptainer exec "$SIF" oflsa-run foamListTimes -rm      # old results; 0/ = initial conditions
 apptainer exec "$SIF" oflsa-run blockMesh
 apptainer exec "$SIF" oflsa-run decomposePar -force    # numberOfSubdomains = 128 in system/decomposeParDict
 for re in 200 500 1000 1250 1500 1750 2000; do         # ... up to the target Reynolds number
@@ -524,7 +541,7 @@ for re in 200 500 1000 1250 1500 1750 2000; do         # ... up to the target Re
     mpirun -np 128 apptainer exec "$SIF" oflsa-run NewtonSolver -parallel > log.NewtonSolver.Re$re 2>&1 || break
 done
 mpirun -np 128 apptainer exec "$SIF" oflsa-run StabilitySolver -parallel > log.StabilitySolver 2>&1
-apptainer exec "$SIF" oflsa-run reconstructPar -withZero
+apptainer exec "$SIF" oflsa-run reconstructPar -latestTime
 touch case.foam
 ```
 
@@ -542,7 +559,9 @@ relying solely on the mutable `latest` tag.
 | `src/matrixFreeFGMRESSafe/` | Matrix-free flexible GMRES library |
 | `applications/solvers/NewtonSolver/` | Steady Newton solver and associated preconditioner |
 | `applications/solvers/StabilitySolver/` | Shift-and-invert global stability solver and associated preconditioner |
-| `tutorials/lidDrivenCavity3D/` | Reduced-resolution verification case |
+| `tutorials/lidDrivenCavity3D/` | Reduced-resolution verification case (straight cavity) |
+| `tutorials/diagonalCavity3D/` | Reduced-resolution verification case (diagonal cavity) |
+| `figures/` | ParaView scripts and one-click launchers for Figs. 1–4 |
 | `tutorials/paper/` | Reference configurations from the manuscript |
 | `scripts/install_ubuntu.sh` | Installation of all prerequisites and compilation on Ubuntu (`sudo`) |
 | `scripts/install_arpack.sh` | Local ARPACK/PARPACK installation (no `sudo`) |

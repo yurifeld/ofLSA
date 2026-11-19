@@ -1,0 +1,52 @@
+/*--------------------------------*- C++ -*----------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      newtonProperties;
+}
+
+Re                          2320.8;
+nuInput                     1;
+
+// Newton nonlinear convergence
+maxNewtonIter               30;
+newtonTolerance             1e-7;
+newtonContinuityTolerance   1e-9;
+newtonDamping               1.0;
+
+// Outer Newton FGMRES
+gmresMaxIter                200;
+gmresRestart                100;
+gmresTolerance              1e-3;
+gmresAbsTolerance           5e-8;
+gmresPrintInterval          10;
+
+// Divergence-cleanup projection after Newton update
+projectionTolerance         1e-10;
+projectionMaxIter           3;
+
+// Optional BC consistency guard
+velocityBoundaryTolerance   1e-12;
+
+
+mALCoeffs
+{
+    gamma                       0.02;
+    velocityOseenShiftSweeps    2;
+
+    velocityBlockMaxIter        50;
+    velocityBlockRestart        100;
+    velocityBlockTolerance      0.05;
+    velocityBlockAbsTolerance   1e-10;
+    velocityBlockPrintInterval  50;
+    requireVelocityBlockConvergence false;
+}
+
+pRefCell                    0;
+pRefPoint                   (0.005 0.005 0.005);
+pRefValue                   0;
+
+// ************************************************************************* //

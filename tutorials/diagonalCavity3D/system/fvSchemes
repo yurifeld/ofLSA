@@ -1,0 +1,53 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| OpenFOAM dictionary                                                       |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSchemes;
+}
+
+ddtSchemes
+{
+    default         steadyState;
+}
+
+gradSchemes
+{
+    default         Gauss linear;
+}
+
+divSchemes
+{
+    // The solver creates temporary flux names, e.g. Base_phi, biCG_*_phi.
+    // A central scheme is required to stay close to the structured-grid Fortran stencil.
+    default  Gauss linear; // Gauss upwind;// Gauss linear; // limitedLinearV 1.0;    
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+fluxRequired
+{
+    default         no;
+    p;
+    pProjection;
+    pStar;
+    dpMS;
+    siDp;
+}

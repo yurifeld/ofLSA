@@ -1824,6 +1824,16 @@ int main(int argc, char *argv[])
     copyVolScalar(p0, base.p);
     copySurfScalar(phi0, base.phi);
 
+    // Results go to time 1: the initial conditions in 0/ stay untouched, and
+    // ParaView (which skips time 0 by default) shows the base flow right away.
+    // A continuation run starts from time 1 (startFrom latestTime) and
+    // overwrites it.
+    if (runTime.value() == 0)
+    {
+        runTime.setTime(scalar(1), runTime.timeIndex() + 1);
+    }
+    Info<< "Writing base flow to time " << runTime.name() << nl;
+
     U0.write();
     p0.write();
     phi0.write();

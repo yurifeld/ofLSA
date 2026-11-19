@@ -1,0 +1,93 @@
+/*--------------------------------*- C++ -*----------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+
+solvers
+{
+    // ---- Base-flow generation (simpleFoam) ----
+    p
+    {
+        solver          GAMG;
+        tolerance       1e-9;
+        relTol          0.01;
+        smoother        GaussSeidel;
+    }
+
+    U
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
+        tolerance       1e-8;
+        relTol          0.1;
+    }
+
+    // ---- StabilitySolver: mAL velocity-component deepest preconditioner ----
+    mALOseen_U
+    {
+        solver          PBiCGStab;
+        preconditioner  DILU;
+        tolerance       1e-5;
+        relTol          0.25;
+        maxIter         50;
+        log             0;
+    }
+
+    // ---- StabilitySolver: native OpenFOAM GAMG pressure L^{-1} ----
+    // One GAMG iteration/cycle is used inside the shifted mAL preconditioner.
+    // The solution is reset to zero before every application.
+    mALPressurePoisson
+    {
+        solver                  GAMG;
+        tolerance               1e-30;
+        relTol                  0;
+        maxIter                 1;
+        smoother                GaussSeidel;
+        nPreSweeps              0;
+        nPostSweeps             2;
+        cacheAgglomeration      true;
+        agglomerator            faceAreaPair;
+        mergeLevels             1;
+        nCellsInCoarsestLevel   100;
+        log                     0;
+    }
+
+    pProjection
+    {
+        solver          GAMG;
+        tolerance       1e-8;
+        relTol          0;
+        smoother        GaussSeidel;
+        nCellsInCoarsestLevel 100;
+        maxIter         100;
+        log             0;
+    }
+}
+
+SIMPLE
+{
+    nNonOrthogonalCorrectors 0;
+    consistent      yes;
+    pRefCell        0;
+    pRefValue       0;
+
+    residualControl
+    {
+        p               1e-6;
+        U               1e-6;
+    }
+}
+
+relaxationFactors
+{
+    equations
+    {
+        U               0.9;
+    }
+}
+
+// ************************************************************************* //

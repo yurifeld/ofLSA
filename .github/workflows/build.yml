@@ -36,9 +36,9 @@ jobs:
           foamDictionary system/decomposeParDict -entry numberOfSubdomains -set 2
           # Re=200 converges from rest; the full Re ramp is Allrun's job, too long for CI
           setRe 200
-          cp -r 0.orig 0
           blockMesh > log.blockMesh
           decomposePar -force > log.decomposePar
           mpirun -np 2 --oversubscribe NewtonSolver -parallel | tee log.NewtonSolver
           grep -q "^End" log.NewtonSolver
+          test -f processor0/1/U   # results go to time 1, 0/ stays the initial conditions
           StabilitySolver -help > /dev/null

@@ -61,7 +61,7 @@ fi
 # ---- mesh and starting point ------------------------------------------------
 if [ "$CONTINUE" = no ]; then
     setEntry system/decomposeParDict numberOfSubdomains "$NP"
-    rm -rf 0 && cp -r 0.orig 0              # fresh initial conditions (0/ is overwritten by results)
+    foamListTimes -rm > /dev/null 2>&1 || true   # old results (1/ ...); 0/ = initial conditions, never touched
     blockMesh            > log.blockMesh    2>&1 || { echo "blockMesh failed, see log.blockMesh"; exit 1; }
     decomposePar -force  > log.decomposePar 2>&1 || { echo "decomposePar failed, see log.decomposePar"; exit 1; }
     rm -f lastConvergedRe
@@ -117,15 +117,15 @@ echo "StabilitySolver at Re = $RE ..."
 mpirun -np "$NP" StabilitySolver -parallel > log.StabilitySolver 2>&1 \
     || { echo "StabilitySolver failed, see log.StabilitySolver"; exit 1; }
 
-# Both solvers write into time 0, and reconstructPar skips the 0/ directory unless
-# -withZero is given (with -latestTime it therefore reconstructs nothing and still
-# exits 0), so pass -withZero and check that the eigenmode really arrived.
-reconstructPar -withZero > log.reconstructPar 2>&1 \
+# Both solvers write into time 1 (0/ keeps the initial conditions), so a plain
+# reconstructPar picks the results up; check that the eigenmode really arrived.
+reconstructPar -latestTime > log.reconstructPar 2>&1 \
     || { echo "reconstructPar failed, see log.reconstructPar"; exit 1; }
-[ -f 0/leadingEigenModeRealU ] \
+[ -f 1/leadingEigenModeRealU ] \
     || { echo "reconstructPar wrote no eigenmode fields, see log.reconstructPar"; exit 1; }
 
 echo "Done. Leading eigenvalue:"
 grep -E "selected lambda|growth rate|angular frequency" log.StabilitySolver | tail -3
 touch case.foam
-echo "Open case.foam in ParaView (fields leadingEigenModeRealU / ImagU)."
+echo "Open case.foam in ParaView (time 1, fields leadingEigenModeRealU / ImagU),"
+echo "or the ready figures: ../../../figures (see figures/README.md)."

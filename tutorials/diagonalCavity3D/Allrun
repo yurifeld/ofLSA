@@ -1,0 +1,132 @@
+#!/bin/sh
+# 3D lid-driven cavity: base flow (Newton, with adaptive Re continuation) +
+# leading eigenmode (shift-invert PARPACK).
+#
+#   ./Allrun                       # 4 MPI ranks, target Re from system/newtonProperties
+#   ./Allrun -np 10
+#   ./Allrun -np 10 -ramp "250 750 1500"   # own continuation steps
+#   ./Allrun -np 10 -ramp none             # Newton directly at the target Re
+#   ./Allrun -np 10 -continue              # keep mesh and base flow, go on from the
+#                                          # last converged Re (stored in lastConvergedRe)
+#   ./Allrun -np 10 -continue -from 1500   # same, base flow on disk is at Re = 1500
+#
+# Continuation: Newton from rest converges only at moderate Re. The base flow is
+# computed at 200, 500, 1000, then every 250, and finally at the target Re. If Newton
+# fails at some Re, the step is halved automatically (the failed run does not touch
+# the fields on disk, so it restarts from the last converged flow), down to a
+# minimum step of MINSTEP. Each converged Re is written to the file lastConvergedRe.
+#
+# Diagonally lid-driven cavity, lid velocity (1/sqrt2, 1/sqrt2, 0), |U| = 1.
+# Grid: 50^3 with sine stretching, a quick workstation version of
+# tutorials/paper/diagonalCavity256 (paper: Re = 2320.8, omega = 0.2507 on 256^3).
+# On 50^3 the critical Re differs by the grid error, so the computed growth
+# rate at Re = 2320.8 is not exactly zero.
+
+cd "$(dirname "$0")" || exit 1
+
+NP=4
+RAMP=auto
+CONTINUE=no
+FROM=""
+MINSTEP=10
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -np)       NP="$2"; shift 2 ;;
+        -ramp)     RAMP="$2"; shift 2 ;;
+        -continue) CONTINUE=yes; shift ;;
+        -from)     FROM="$2"; CONTINUE=yes; shift 2 ;;
+        -minstep)  MINSTEP="$2"; shift 2 ;;
+        *) echo "Unknown option $1"; exit 1 ;;
+    esac
+done
+
+command -v StabilitySolver >/dev/null || { echo "StabilitySolver not found: run ./Allwmake"; exit 1; }
+
+# Set "key value;" in an OpenFOAM dictionary in place. sed instead of
+# foamDictionary -set, which would rewrite the whole file and drop its comments.
+setEntry() {
+    grep -q "^$2[[:space:]]" "$1" || { echo "No entry $2 in $1"; exit 1; }
+    sed -i "s/^\($2[[:space:]]*\)[^;]*;/\1$3;/" "$1"
+}
+
+RE=$(foamDictionary system/newtonProperties -entry Re -value)
+echo "Target Re = $RE, $NP MPI ranks"
+
+if [ "$RAMP" = auto ]; then
+    RAMP=$(awk -v t="$RE" 'BEGIN { n = split("200 500 1000", a, " "); for (i = 1; i <= n; i++) if (a[i] < t) printf "%d ", a[i]; for (r = 1250; r < t; r += 250) printf "%d ", r }')
+elif [ "$RAMP" = none ]; then
+    RAMP=""
+fi
+
+# ---- mesh and starting point ------------------------------------------------
+if [ "$CONTINUE" = no ]; then
+    setEntry system/decomposeParDict numberOfSubdomains "$NP"
+    foamListTimes -rm > /dev/null 2>&1 || true   # old results (1/ ...); 0/ = initial conditions, never touched
+    blockMesh            > log.blockMesh    2>&1 || { echo "blockMesh failed, see log.blockMesh"; exit 1; }
+    decomposePar -force  > log.decomposePar 2>&1 || { echo "decomposePar failed, see log.decomposePar"; exit 1; }
+    rm -f lastConvergedRe
+    LAST=0                                  # fluid at rest
+else
+    [ -d processor0 ] || { echo "-continue: no processor* folders, run without -continue first"; exit 1; }
+    if [ -n "$FROM" ]; then
+        LAST="$FROM"
+    elif [ -f lastConvergedRe ]; then
+        LAST=$(cat lastConvergedRe)
+    else
+        echo "-continue: unknown Re of the base flow on disk; give it with -from <Re>"
+        exit 1
+    fi
+    echo "Continuing from the base flow at Re = $LAST"
+fi
+
+lt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a < b) }'; }
+
+# ---- Newton with adaptive continuation ---------------------------------------
+for t in $RAMP $RE; do
+    lt "$LAST" "$t" || continue             # already beyond this step
+    while lt "$LAST" "$t"; do
+        r="$t"
+        while :; do
+            echo "NewtonSolver at Re = $r ..."
+            setEntry system/newtonProperties Re "$r"
+            if mpirun -np "$NP" NewtonSolver -parallel > "log.NewtonSolver.Re$r" 2>&1; then
+                grep "^Newton " "log.NewtonSolver.Re$r" | tail -1
+                LAST="$r"
+                echo "$LAST" > lastConvergedRe
+                break
+            fi
+            r=$(awk -v a="$LAST" -v b="$r" 'BEGIN { printf "%g", (a + b)/2 }')
+            if ! lt "$(awk -v a="$LAST" -v m="$MINSTEP" 'BEGIN { print a + m }')" "$r"; then
+                setEntry system/newtonProperties Re "$RE"
+                echo "Newton does not converge even with a step of $MINSTEP above Re = $LAST."
+                echo "Base flow on disk is at Re = $LAST (see lastConvergedRe)."
+                exit 1
+            fi
+            echo "  failed, halving the step: trying Re = $r"
+        done
+    done
+done
+
+setEntry system/newtonProperties Re "$RE"
+cp "log.NewtonSolver.Re$LAST" log.NewtonSolver
+
+# ---- stability at the target Re (both dictionaries must agree) ---------------
+setEntry system/stabilityProperties Re "$RE"
+
+echo "StabilitySolver at Re = $RE ..."
+mpirun -np "$NP" StabilitySolver -parallel > log.StabilitySolver 2>&1 \
+    || { echo "StabilitySolver failed, see log.StabilitySolver"; exit 1; }
+
+# Both solvers write into time 1 (0/ keeps the initial conditions), so a plain
+# reconstructPar picks the results up; check that the eigenmode really arrived.
+reconstructPar -latestTime > log.reconstructPar 2>&1 \
+    || { echo "reconstructPar failed, see log.reconstructPar"; exit 1; }
+[ -f 1/leadingEigenModeRealU ] \
+    || { echo "reconstructPar wrote no eigenmode fields, see log.reconstructPar"; exit 1; }
+
+echo "Done. Leading eigenvalue:"
+grep -E "selected lambda|growth rate|angular frequency" log.StabilitySolver | tail -3
+touch case.foam
+echo "Open case.foam in ParaView (time 1, fields leadingEigenModeRealU / ImagU),"
+echo "or the ready figures: ../../figures (see figures/README.md)."
