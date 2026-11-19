@@ -2,7 +2,7 @@
 
 Ready-to-run setups that reproduce Tables 1 and 2 of
 
-> D. Polyak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
+> D. Poliak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
 > Analysis in OpenFOAM*, under review (2026).
 
 | Case | Lid | Re | Shift σ | Paper result |

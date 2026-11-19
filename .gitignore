@@ -7,6 +7,9 @@ tutorials/**/case.foam
 tutorials/**/constant/polyMesh/
 tutorials/**/[1-9]*/
 tutorials/**/lastConvergedRe
-tutorials/**/0/
 tutorials/**/paraview.*.btr
 log.Allwmake
+__pycache__/
+tutorials/**/fig[0-9].pvsm
+tutorials/**/fig[0-9]_levels.txt
+tutorials/**/figures/

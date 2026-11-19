@@ -220,6 +220,14 @@ int main(int argc, char *argv[])
 
     if (writeEigenModeFields)
     {
+        // The base flow is read from the latest time (1/, written by
+        // NewtonSolver); the eigenmode is written next to it.  Never into 0/,
+        // which holds only the initial conditions.
+        if (runTime.value() == 0)
+        {
+            runTime.setTime(scalar(1), runTime.timeIndex() + 1);
+        }
+        Info<< "Writing leading eigenmode to time " << runTime.name() << nl;
         writeLeadingMode(runTime, leadingMode);
         Info<< "Wrote leadingEigenMode Real/Imag U,p,phi" << nl;
     }

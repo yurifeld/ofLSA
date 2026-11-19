@@ -1,6 +1,6 @@
 #!/bin/sh
 # Delete all results and restore the case to its committed state.
-# Settings (system/, constant/ except polyMesh, 0.orig/) are kept.
+# Settings (system/, constant/ except polyMesh) and the initial conditions in 0/ are kept.
 cd "$(dirname "$0")" || exit 1
 foamListTimes -rm 2>/dev/null || true
-rm -rf 0 processor* log.* case.foam constant/polyMesh lastConvergedRe paraview.*.btr
+rm -rf processor* log.* case.foam constant/polyMesh lastConvergedRe paraview.*.btr

@@ -1,0 +1,74 @@
+/*--------------------------------*- C++ -*----------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      stabilityProperties;
+}
+
+// Stability physics: StabilitySolver now reads these here, NOT from newtonProperties.
+Re                         2320.8;
+nuInput                    1;
+
+jacobianSign               -1;
+
+sigmaReal                  0;
+sigmaImag                  0.22;
+
+continuityWeight           1;
+
+// mAL preconditioner used by the shifted stability solve.
+
+mALCoeffs
+{
+    gamma                       0.02;
+
+    velocityOseenShiftSweeps    1;
+
+    velocityBlockMaxIter        50;
+    velocityBlockRestart        50;
+    velocityBlockTolerance      0.05;
+    velocityBlockAbsTolerance   1e-10;
+    velocityBlockPrintInterval  10;
+
+    requireVelocityBlockConvergence false;
+}
+
+// Pressure reference used by the stability saddle-point solve.
+pRefCell                    0;
+pRefPoint                   (0.005 0.005 0.005);
+pRefValue                   0;
+
+// Inner shift-invert FGMRES solve
+shiftInvertMaxIter          900;
+shiftInvertRestart          300;
+shiftInvertTolerance        1e-4;
+shiftInvertAbsTolerance     1e-10;
+shiftInvertPrintInterval    20;
+
+baseContinuityTolerance     1e-6;
+
+// PARPACK / Arnoldi
+arnoldiNev                  2;
+arnoldiNcv                  8;
+arnoldiMaxIterations        30;
+arnoldiTolerance            1e-6;
+
+arnoldiConstraintTolerance         1e-4;
+arnoldiAbortOnConstraintViolation  true;
+
+arnoldiWhich               LM;
+arnoldiDeterministicStart  true;
+arnoldiVolumeWeighting     true;
+arnoldiPrintInterval       1;
+
+leadingSelection           largestRealPart;
+
+arnoldiTransformedResidualTolerance  1e-5;
+arnoldiGeneralizedResidualTolerance  1e-4;
+
+writeEigenModeFields       true;
+
+// ************************************************************************* //
