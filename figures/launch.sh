@@ -44,4 +44,19 @@ if command -v setsid >/dev/null 2>&1; then
 else
     nohup "$pv" --script="$here/fig$fig.py" < /dev/null > "$log" 2>&1 &
 fi
+pid=$!
 echo "ParaView started (messages: $log)"
+
+# Some MPI-enabled ParaView builds (e.g. Ubuntu's) block at start-up in a
+# unix-socket send (wchan unix_wait_for_peer) until a signal interrupts the
+# call. If that is the case, wake it with SIGHUP (it survives it); otherwise
+# leave it alone. Linux only (/proc).
+if [ -r /proc/$pid/wchan ]; then
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        [ -r /proc/$pid/wchan ] || break
+        if [ "$(cat /proc/$pid/wchan 2>/dev/null)" = unix_wait_for_peer ]; then
+            kill -HUP $pid 2>/dev/null
+        fi
+    done &
+fi
