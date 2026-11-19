@@ -480,7 +480,7 @@ and phase convention.
 ### Eigenmode figures of the paper
 
 The scripts in [`figures/`](figures/README.md) rebuild Figs. 1–4 of the paper in ParaView from a
-computed case (the mesh and the eigenmode fields in time `1/`): isosurfaces at 25 % of the
+computed case (the mesh and the eigenmode fields in the time directory `1/`): isosurfaces at 25 % of the
 maximum of each velocity component (±25 % for the signed real and imaginary parts, red/blue),
 cavity outline, lid-direction arrow, one camera for all
 panels.
