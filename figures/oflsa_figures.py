@@ -113,10 +113,14 @@ def _open_case(case, reconstructed):
     reader.MeshRegions = ["internalMesh"]
     reader.CellArrays = [REAL_U, IMAG_U]
     reader.UpdatePipelineInformation()
-    times = reader.TimestepValues
-    if not isinstance(times, (list, tuple)):
-        times = [times]
-    t = max(times) if len(times) else 0.0
+    # TimestepValues is a ParaView property (list-like), or a bare number
+    # when the case has a single time
+    tv = reader.TimestepValues
+    try:
+        times = [float(x) for x in tv]
+    except TypeError:
+        times = [float(tv)] if tv is not None else []
+    t = max(times) if times else 0.0
     reader.UpdatePipeline(t)
     scene = GetAnimationScene()
     scene.UpdateAnimationUsingDataTimeSteps()
@@ -135,7 +139,7 @@ def _calc(points, name, expr, t):
 
 
 def _iso(calc, name, level, color, view, t):
-    if level <= 0:
+    if level == 0:
         return
     s = Contour(registrationName="iso_%s_%+.3g" % (name, level), Input=calc)
     s.ContourBy = ["POINTS", name]
@@ -143,7 +147,7 @@ def _iso(calc, name, level, color, view, t):
     _try_set(s, "ComputeScalars", 0)
     s.UpdatePipeline(t)
     d = Show(s, view)
-    ColorBy(d, None)
+    d.ColorArrayName = ["POINTS", ""]
     d.AmbientColor = color
     d.DiffuseColor = color
     d.Opacity = OPACITY
@@ -166,8 +170,12 @@ def _new_view():
     return v
 
 
+_LID_DEG = [0.0]
+
+
 def _lid_sources(reader, bounds, lid_deg):
     """Cavity outline and lid arrow, built once and shown in every panel."""
+    _LID_DEG[0] = lid_deg
     outline = Outline(registrationName="outline", Input=reader)
     x0, x1, y0, y1, z0, z1 = bounds
     L = 0.4 * (x1 - x0)
@@ -188,11 +196,11 @@ def _lid_sources(reader, bounds, lid_deg):
 def _decorate(view, sources, bounds, label, name):
     outline, arrow = sources
     o = Show(outline, view)
-    ColorBy(o, None)
+    o.ColorArrayName = ["POINTS", ""]
     o.AmbientColor = o.DiffuseColor = [0, 0, 0]
     _try_set(o, "LineWidth", 1.5)
     d = Show(arrow, view)
-    ColorBy(d, None)
+    d.ColorArrayName = ["POINTS", ""]
     d.AmbientColor = d.DiffuseColor = [0, 0, 0]
     x0, x1, y0, y1, z0, z1 = bounds
     cx, cy = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
@@ -208,7 +216,12 @@ def _decorate(view, sources, bounds, label, name):
 
     # camera
     c = [cx, cy, 0.5 * (z0 + z1)]
-    dx, dy, dz = CAMERA_DIRECTION
+    # rotate the camera with the lid, so the arrow always looks the same
+    # (for the diagonal cavity the arrow would otherwise point at the viewer)
+    a = math.radians(_LID_DEG[0])
+    cx0, cy0, dz = CAMERA_DIRECTION
+    dx = cx0 * math.cos(a) - cy0 * math.sin(a)
+    dy = cx0 * math.sin(a) + cy0 * math.cos(a)
     view.CameraFocalPoint = c
     view.CameraPosition = [c[0] + 3 * dx, c[1] + 3 * dy, c[2] + 3 * dz]
     view.CameraViewUp = [0, 0, 1]
@@ -290,7 +303,7 @@ def build_figure(number):
                 AssignViewToLayout(view=v, layout=lay, hint=cell)
                 _iso(calc, name, +level, POSITIVE, v, t)
                 _iso(calc, name, -level, NEGATIVE, v, t)
-                label = "%s(%s) = +-%.*e" % (part, LABEL[comp],
+                label = "%s(%s) = ±%.*e" % (part, LABEL[comp],
                                              LEVEL_DIGITS - 1, level)
                 _decorate(v, sources, bounds, label, name)
                 lines.append(label)

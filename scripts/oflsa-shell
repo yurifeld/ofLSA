@@ -25,6 +25,12 @@ rm -f "$RCFILE"
 echo "OpenFOAM \$WM_PROJECT_VERSION + ofLSA loaded. ARPACK: \${ARPACK_LIB:-not found}"
 EOF
 
+# Keep what graphical programs (ParaView) need to reach the desktop session:
+# X authority, Wayland socket, runtime dir, D-Bus, locale.
 exec env -i HOME="$HOME" USER="$USER" TERM="$TERM" DISPLAY="${DISPLAY:-}" \
+    XAUTHORITY="${XAUTHORITY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" \
+    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+    LANG="${LANG:-C.UTF-8}" \
     PATH=/usr/local/bin:/usr/bin:/bin \
     bash --rcfile "$RCFILE" -i

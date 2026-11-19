@@ -44,6 +44,10 @@ Every run also writes into the case directory:
 
 Levels are rounded to three significant digits.
 
+## Tested with
+
+ParaView 6.0.1 (Ubuntu); the scripts also avoid APIs that changed between 5.x and 6.x.
+
 ## Tuning
 
 All settings are at the top of `oflsa_figures.py`: `LEVEL_FRACTION` (0.25),
