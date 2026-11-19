@@ -1,7 +1,7 @@
 #!/bin/sh
 # Common launcher for fig*.sh:  launch.sh <figure 1-4> <256 | 50 | case dir> [-png]
 #   256 / 50   the paper case or the 50^3 tutorial of that cavity
-#   -png       no window: render the panels with pvbatch into <case>/figures/
+#   -png       also save every panel as PNG into <case>/figures/
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
 fig="$1"; grid="${2:-256}"; png="$3"
@@ -21,8 +21,9 @@ if [ ! -f "$caseDir/1/leadingEigenModeRealU" ] \
     exit 1
 fi
 
-# ParaView: PATH, then the usual install places (Linux tarballs, macOS app)
-exe=paraview; [ "$png" = "-png" ] && exe=pvbatch
+# ParaView: PATH, then the usual install places (Linux tarballs, macOS app).
+# PNGs are also made with the GUI: pvbatch often cannot render without a display.
+exe=paraview
 pv=$(command -v "$exe" 2>/dev/null)
 if [ -z "$pv" ]; then
     for d in /opt/ParaView*/bin "$HOME"/ParaView*/bin "$HOME"/opt/ParaView*/bin \
@@ -34,8 +35,13 @@ fi
 
 export OFLSA_CASE="$caseDir" OFLSA_FIGDIR="$here"
 echo "Fig. $fig from $caseDir"
-if [ "$png" = "-png" ]; then
-    OFLSA_PNG=1 exec "$pv" "$here/fig$fig.py"
+[ "$png" = "-png" ] && export OFLSA_PNG=1 && echo "PNGs -> $caseDir/figures/"
+# Detach ParaView from the terminal: ParaView 6 started from a terminal waits
+# for it (stdin) and does not show its window until the terminal is closed.
+log="$caseDir/log.figure$fig"
+if command -v setsid >/dev/null 2>&1; then
+    setsid "$pv" --script="$here/fig$fig.py" < /dev/null > "$log" 2>&1 &
 else
-    exec "$pv" --script="$here/fig$fig.py"
+    nohup "$pv" --script="$here/fig$fig.py" < /dev/null > "$log" 2>&1 &
 fi
+echo "ParaView started (messages: $log)"

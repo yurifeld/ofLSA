@@ -23,10 +23,12 @@ The cases are `tutorials/paper/straightCavity256`, `tutorials/paper/diagonalCavi
      or in `C:\Program Files\ParaView*`. To view results computed on the cluster, copy the
      whole case folder (with `1\`, `constant\polyMesh\`, `system\`) into the same place in
      the repository, e.g. with WinSCP.
-   - **Linux / macOS:** `./fig2.sh` (or `./fig2_50.sh`).
-   - Any other case: `./fig2.sh /path/to/case` or `fig2.bat C:\path\to\case`.
-3. Without a window (cluster, batch): `./fig2.sh -png` renders every panel with `pvbatch`
-   into `<case>/figures/`.
+   - **Linux / macOS**, from the repository root: `./figures/fig2.sh` (or
+     `./figures/fig2_50.sh`).
+   - Any other case: `./figures/fig2.sh /path/to/case` or `fig2.bat C:\path\to\case`.
+3. Also save PNGs: `./figures/fig2.sh -png` saves every panel into `<case>/figures/` while the
+   figure opens. ParaView is started detached from the terminal; its messages go to
+   `<case>/log.figureN`.
 
 Every run also writes into the case directory:
 

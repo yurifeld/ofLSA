@@ -490,8 +490,17 @@ the same camera in all panels. After `./Allrun` in a case:
 | Fig. 3, diagonal cavity, amplitudes | `figures/fig3.sh` / `fig3.bat` | `figures/fig3_50.sh` / `fig3_50.bat` |
 | Fig. 4, diagonal cavity, Re / Im | `figures/fig4.sh` / `fig4.bat` | `figures/fig4_50.sh` / `fig4_50.bat` |
 
-On Windows a double-click on the `.bat` file opens ParaView with the figure; on Linux and
-macOS run the `.sh` file. Add `-png` to render the panels without a window.
+On Linux and macOS, from the repository root:
+
+```bash
+./figures/fig2_50.sh            # Fig. 2 from the 50^3 tutorial
+./figures/fig2.sh               # Fig. 2 from the 256^3 paper case
+./figures/fig2.sh -png          # also save every panel as PNG into <case>/figures/
+./figures/fig2.sh /path/to/case # any other computed case
+```
+
+On Windows, double-click `figures\fig2.bat` (or `fig2_50.bat`). ParaView opens with the
+figure; the case must have been run first (results in `1/`). Details: [`figures/README.md`](figures/README.md).
 
 ---
 
