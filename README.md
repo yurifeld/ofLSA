@@ -283,7 +283,7 @@ The `Allrun` script performs the following operations:
    using `StabilitySolver`.
 6. Reconstruction of the distributed solution into `1/` using `reconstructPar -latestTime`, and
    creation of `case.foam` for ParaView. ParaView opens the case directly at time 1; the
-   paper figures are produced from it by the scripts in `figures/` (Section 7a).
+   paper figures are produced from it by the scripts in `figures/` (Section 7).
 
 `./Allclean` removes all generated data and restores the case to its original state.
 
@@ -477,33 +477,40 @@ The complex eigenmode has arbitrary normalization and global phase; comparisons 
 fields between independent calculations should therefore employ a consistent normalization
 and phase convention.
 
-### Paper figures in one click
+### Eigenmode figures of the paper
 
-The folder [`figures/`](figures/README.md) rebuilds Figs. 1–4 of the manuscript in ParaView:
-isosurfaces at ±25 % of the maximum of each velocity component, cavity outline, lid arrow,
-the same camera in all panels. After `./Allrun` in a case:
+The scripts in [`figures/`](figures/README.md) rebuild Figs. 1–4 of the paper in ParaView from a
+computed case (the mesh and the eigenmode fields in time `1/`): isosurfaces at ±25 % of the
+maximum of each velocity component, cavity outline, lid-direction arrow, one camera for all
+panels.
 
-| Figure | 256³ (paper case) | 50³ (tutorial) |
+| Figure | Content | Script |
 |---|---|---|
-| Fig. 1, straight cavity, amplitudes | `figures/fig1.sh` / `fig1.bat` | `figures/fig1_50.sh` / `fig1_50.bat` |
-| Fig. 2, straight cavity, Re / Im | `figures/fig2.sh` / `fig2.bat` | `figures/fig2_50.sh` / `fig2_50.bat` |
-| Fig. 3, diagonal cavity, amplitudes | `figures/fig3.sh` / `fig3.bat` | `figures/fig3_50.sh` / `fig3_50.bat` |
-| Fig. 4, diagonal cavity, Re / Im | `figures/fig4.sh` / `fig4.bat` | `figures/fig4_50.sh` / `fig4_50.bat` |
+| 1 | straight cavity, mode amplitudes | `fig1` |
+| 2 | straight cavity, real and imaginary parts | `fig2` |
+| 3 | diagonal cavity, mode amplitudes | `fig3` |
+| 4 | diagonal cavity, real and imaginary parts | `fig4` |
 
-The computed 50³ results of both cavities are included in the repository, so the `_50` figures
-open right after cloning, without OpenFOAM. The 256³ cases have to be computed first.
+**Data.**
 
-On Linux and macOS, from the repository root:
+| Grid | Cases | Results |
+|---|---|---|
+| 50³ | `tutorials/lidDrivenCavity3D`, `tutorials/diagonalCavity3D` | included in the repository; the figures open right after `git clone`, without OpenFOAM |
+| 256³ | `tutorials/paper/straightCavity256`, `tutorials/paper/diagonalCavity256` | not included (several GB); compute them with `./Allrun` in the case (256 cores, 10–20 h, see Section 5), or copy a computed case directory to the same place |
+
+**Usage** (ParaView must be installed; from the repository root):
 
 ```bash
-./figures/fig2_50.sh            # Fig. 2 from the 50^3 tutorial
-./figures/fig2.sh               # Fig. 2 from the 256^3 paper case
+./figures/fig2_50.sh            # Fig. 2 from the 50^3 results in the repository
+./figures/fig2.sh               # Fig. 2 from the 256^3 case (after it has been computed)
 ./figures/fig2.sh -png          # also save every panel as PNG into <case>/figures/
 ./figures/fig2.sh /path/to/case # any other computed case
 ```
 
-On Windows, double-click `figures\fig2.bat` (or `fig2_50.bat`). ParaView opens with the
-figure; the case must have been run first (results in `1/`). Details: [`figures/README.md`](figures/README.md).
+On Windows the same launchers exist as batch files (`figures\fig2_50.bat`, `figures\fig2.bat`,
+...) and are started by double-clicking them in Explorer; ParaView is looked up in `PATH` and in
+`C:\Program Files\ParaView*`. Settings (isosurface fraction, colours, camera) and output files
+are described in [`figures/README.md`](figures/README.md).
 
 ---
 
@@ -573,7 +580,7 @@ relying solely on the mutable `latest` tag.
 | `applications/solvers/StabilitySolver/` | Shift-and-invert global stability solver and associated preconditioner |
 | `tutorials/lidDrivenCavity3D/` | Reduced-resolution verification case (straight cavity) |
 | `tutorials/diagonalCavity3D/` | Reduced-resolution verification case (diagonal cavity) |
-| `figures/` | ParaView scripts and one-click launchers for Figs. 1–4 |
+| `figures/` | ParaView scripts and launchers for Figs. 1–4 of the paper |
 | `tutorials/paper/` | Reference configurations from the manuscript |
 | `scripts/install_ubuntu.sh` | Installation of all prerequisites and compilation on Ubuntu (`sudo`) |
 | `scripts/install_arpack.sh` | Local ARPACK/PARPACK installation (no `sudo`) |
