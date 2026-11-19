@@ -2,13 +2,13 @@
 
 ofLSA is a parallel, matrix-free computational framework for the steady-state solution and
 three-dimensional global linear stability analysis (TriGlobal LSA) of incompressible flows.
-Developed by D. Polyak and Y. Feldman at the Department of Mechanical Engineering,
+Developed by D. Poliak and Y. Feldman at the Department of Mechanical Engineering,
 Ben-Gurion University of the Negev, the framework is implemented in OpenFOAM 14 (OpenFOAM Foundation) and uses its
 finite-volume discretization, domain decomposition, MPI communication and native iterative
 linear solvers.
 
 The repository accompanies the manuscript *Preconditioned Shift-and-Invert Global Linear
-Stability Analysis in OpenFOAM* by D. Polyak and Y. Feldman, currently under review. It
+Stability Analysis in OpenFOAM* by D. Poliak and Y. Feldman, currently under review. It
 provides the solver implementations, installation,
 compilation and execution scripts, a reduced-resolution tutorial for initial verification,
 and the high-resolution straight and diagonally lid-driven cavity configurations used in the
@@ -578,7 +578,7 @@ relying solely on the mutable `latest` tag.
 If the software or reference configurations are used in research, please cite the
 accompanying manuscript:
 
-> D. Polyak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
+> D. Poliak and Y. Feldman, *Preconditioned Shift-and-Invert Global Linear Stability
 > Analysis in OpenFOAM*, under review (2026).
 
 The citation will be updated with the journal reference upon publication.
