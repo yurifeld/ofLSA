@@ -16,6 +16,10 @@ The cases are `tutorials/paper/straightCavity256`, `tutorials/paper/diagonalCavi
 
 ## Use
 
+The 50³ results (`tutorials/lidDrivenCavity3D`, `tutorials/diagonalCavity3D`) are included in the
+repository: `./figures/fig2_50.sh` works right after `git clone`, without OpenFOAM. Step 1
+is needed only for the 256³ cases or to recompute.
+
 1. Run the case (`./Allrun`). The results are written into time `1/`; `0/` holds only the
    initial conditions. A decomposed case (`processor*/1/`) also works.
 2. Start the figure:

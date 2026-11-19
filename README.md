@@ -490,6 +490,9 @@ the same camera in all panels. After `./Allrun` in a case:
 | Fig. 3, diagonal cavity, amplitudes | `figures/fig3.sh` / `fig3.bat` | `figures/fig3_50.sh` / `fig3_50.bat` |
 | Fig. 4, diagonal cavity, Re / Im | `figures/fig4.sh` / `fig4.bat` | `figures/fig4_50.sh` / `fig4_50.bat` |
 
+The computed 50³ results of both cavities are included in the repository, so the `_50` figures
+open right after cloning, without OpenFOAM. The 256³ cases have to be computed first.
+
 On Linux and macOS, from the repository root:
 
 ```bash
